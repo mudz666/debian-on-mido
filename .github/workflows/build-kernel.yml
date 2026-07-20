@@ -1,0 +1,114 @@
+name: Build kernel
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - config
+      - env.sh
+      - .github/workflows/build-kernel.yml
+  pull_request:
+    paths:
+      - config
+      - env.sh
+      - .github/workflows/build-kernel.yml
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: Kernel branch, tag, or commit to build
+        required: true
+        default: 6.16.3/main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KERNEL_REPOSITORY: https://github.com/msm8953-mainline/linux.git
+  KERNEL_REF: ${{ inputs.kernel_ref || '6.16.3/main' }}
+
+jobs:
+  build:
+    name: Build ARM64 Debian packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            cpio \
+            debhelper \
+            dwarves \
+            fakeroot \
+            flex \
+            gcc-aarch64-linux-gnu \
+            git \
+            kmod \
+            libelf-dev \
+            libssl-dev \
+            pkg-config \
+            rsync
+
+      - name: Fetch kernel source
+        shell: bash
+        run: |
+          git init linux
+          git -C linux remote add origin "$KERNEL_REPOSITORY"
+          git -C linux fetch --depth=1 origin "$KERNEL_REF"
+          git -C linux checkout --detach FETCH_HEAD
+
+      - name: Configure kernel
+        shell: bash
+        run: |
+          source "$GITHUB_WORKSPACE/env.sh"
+          cp "$GITHUB_WORKSPACE/config" "$GITHUB_WORKSPACE/linux/.config"
+          make -C "$GITHUB_WORKSPACE/linux" olddefconfig
+
+      - name: Build kernel and Debian packages
+        shell: bash
+        run: |
+          source "$GITHUB_WORKSPACE/env.sh"
+          make -C "$GITHUB_WORKSPACE/linux" -j"$(nproc)" Image.gz dtbs modules
+          make -C "$GITHUB_WORKSPACE/linux" -j"$(nproc)" \
+            DEB_BUILD_PROFILES=pkg.linux-upstream.nokernelheaders \
+            bindeb-pkg
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp linux/arch/arm64/boot/Image.gz artifacts/
+          cp linux/.config artifacts/kernel.config
+          git -C linux rev-parse HEAD > artifacts/kernel-source-revision.txt
+
+          find linux/arch/arm64/boot/dts/qcom \
+            -maxdepth 1 -type f -name '*mido*.dtb' \
+            -exec cp --target-directory=artifacts {} +
+          find . -maxdepth 1 -type f -name '*.deb' ! -name '*-dbg_*' \
+            -exec cp --target-directory=artifacts {} +
+
+          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -type f -name '*mido*.dtb' -print -quit)"
+          ls -lh artifacts
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mido-kernel-${{ github.run_number }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
