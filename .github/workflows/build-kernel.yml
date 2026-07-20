@@ -8,6 +8,7 @@ on:
       - config
       - env.sh
       - firmware/**
+      - scripts/build-lk2nd.sh
       - scripts/build-system-image.sh
       - .github/workflows/build-kernel.yml
   pull_request:
@@ -15,6 +16,7 @@ on:
       - config
       - env.sh
       - firmware/**
+      - scripts/build-lk2nd.sh
       - scripts/build-system-image.sh
       - .github/workflows/build-kernel.yml
   workflow_dispatch:
@@ -29,6 +31,15 @@ on:
         required: true
         default: true
         type: boolean
+      desktop_environment:
+        description: Desktop environment included in the system image
+        required: true
+        default: phosh
+        type: choice
+        options:
+          - phosh
+          - xfce
+          - none
 
 permissions:
   contents: read
@@ -40,6 +51,7 @@ concurrency:
 env:
   KERNEL_REPOSITORY: https://github.com/msm8953-mainline/linux.git
   KERNEL_REF: ${{ inputs.kernel_ref || '6.16.3/main' }}
+  LK2ND_REF: 6752fb8abe45e079f13ed203c7198d5a93f965ed
 
 jobs:
   build:
@@ -52,7 +64,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate build scripts
-        run: bash -n env.sh scripts/build-system-image.sh
+        run: bash -n env.sh scripts/build-lk2nd.sh scripts/build-system-image.sh
 
       - name: Install build dependencies
         run: |
@@ -150,7 +162,11 @@ jobs:
             binfmt-support \
             ca-certificates \
             debootstrap \
+            device-tree-compiler \
             e2fsprogs \
+            gcc-arm-none-eabi \
+            libfdt-dev \
+            make \
             qemu-user-static \
             rsync \
             uuid-runtime
@@ -168,13 +184,21 @@ jobs:
             KERNEL_ARTIFACTS="$GITHUB_WORKSPACE/kernel-artifacts" \
             OUTPUT_DIR="$GITHUB_WORKSPACE/system-artifacts" \
             UCM_SOURCE_DIR="$GITHUB_WORKSPACE/alsa-ucm-conf/ucm2" \
+            DESKTOP_ENVIRONMENT="${{ inputs.desktop_environment || 'phosh' }}" \
             bash scripts/build-system-image.sh
           sudo chown -R "$USER:$USER" system-artifacts
+
+      - name: Build lk2nd images
+        shell: bash
+        run: |
+          OUTPUT_DIR="$GITHUB_WORKSPACE/system-artifacts" \
+            LK2ND_REF="$LK2ND_REF" \
+            bash scripts/build-lk2nd.sh
 
       - name: Upload system images
         uses: actions/upload-artifact@v4
         with:
-          name: mido-system-${{ github.run_number }}-${{ github.run_attempt }}
+          name: mido-system-${{ inputs.desktop_environment || 'phosh' }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: system-artifacts/
           if-no-files-found: error
           retention-days: 7

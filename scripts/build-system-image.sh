@@ -21,7 +21,21 @@ OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/system-artifacts}"
 UCM_SOURCE_DIR="${UCM_SOURCE_DIR:-}"
 DEBIAN_SUITE="${DEBIAN_SUITE:-trixie}"
 DEBIAN_MIRROR="${DEBIAN_MIRROR:-https://deb.debian.org/debian}"
-ROOTFS_SIZE="${ROOTFS_SIZE:-3G}"
+DESKTOP_ENVIRONMENT="${DESKTOP_ENVIRONMENT:-phosh}"
+
+case "$DESKTOP_ENVIRONMENT" in
+phosh|xfce)
+    DEFAULT_ROOTFS_SIZE=6G
+    ;;
+none)
+    DEFAULT_ROOTFS_SIZE=3G
+    ;;
+*)
+    fail "unsupported desktop environment: $DESKTOP_ENVIRONMENT"
+    ;;
+esac
+
+ROOTFS_SIZE="${ROOTFS_SIZE:-$DEFAULT_ROOTFS_SIZE}"
 BOOTFS_SIZE="${BOOTFS_SIZE:-1G}"
 
 for command in chroot debootstrap find img2simg mke2fs mount mountpoint \
@@ -205,6 +219,48 @@ apt-get install --yes \
     vim \
     zstd
 
+case "${DESKTOP_ENVIRONMENT:-phosh}" in
+phosh)
+    apt-get install --yes \
+        alsa-utils \
+        dconf-cli \
+        dconf-editor \
+        firefox-esr \
+        firefox-esr-l10n-zh-cn \
+        fonts-noto-cjk \
+        gnome-text-editor \
+        gnome-tweaks \
+        loupe \
+        nautilus \
+        phosh \
+        phosh-full \
+        phosh-phone
+    ;;
+xfce)
+    apt-get install --yes \
+        blueman \
+        fcitx5 \
+        fcitx5-chinese-addons \
+        firefox-esr \
+        fonts-wqy-zenhei \
+        lightdm \
+        lightdm-gtk-greeter \
+        mousepad \
+        network-manager-gnome \
+        onboard \
+        policykit-1 \
+        ristretto \
+        xinput \
+        xfce4 \
+        xfce4-power-manager \
+        xfce4-terminal \
+        xorg \
+        yad
+    ;;
+none)
+    ;;
+esac
+
 apt-get install --yes /tmp/kernel-packages/linux-image-*.deb
 
 if ! id debian >/dev/null 2>&1; then
@@ -221,17 +277,63 @@ systemctl enable resizefs.service
 systemctl enable serial-getty@ttyGS0.service
 systemctl enable ssh.service
 systemctl enable systemd-timesyncd.service
+
+case "${DESKTOP_ENVIRONMENT:-phosh}" in
+phosh)
+    systemctl enable gdm3.service
+    systemctl set-default graphical.target
+    install -d /etc/dconf/db/local.d
+    cat > /etc/dconf/db/local.d/00-mido <<'EOF_DCONF'
+[org/gnome/settings-daemon/plugins/power]
+sleep-inactive-ac-timeout=0
+sleep-inactive-ac-type='nothing'
+EOF_DCONF
+    dconf update
+    ;;
+xfce)
+    systemctl enable lightdm.service
+    systemctl set-default graphical.target
+    install -d /etc/lightdm/lightdm.conf.d
+    cat > /etc/lightdm/lightdm.conf.d/50-mido.conf <<'EOF_LIGHTDM'
+[Seat:*]
+greeter-hide-users=false
+EOF_LIGHTDM
+    cat > /etc/lightdm/lightdm-gtk-greeter.conf <<'EOF_GREETER'
+[greeter]
+font-name=Monospace 24
+keyboard=onboard -l Phone -e
+a11y-states=+keyboard;+font
+position=50%,center 35%,center
+keyboard-position=50%,center -0;100% 40%
+EOF_GREETER
+    printf 'MOZ_USE_XINPUT2 DEFAULT=1\n' >> /etc/security/pam_env.conf
+    printf 'QT_FONT_DPI=192\n' >> /etc/environment
+    ;;
+none)
+    ;;
+esac
+
 update-initramfs -u -k all
 apt-get clean
 EOF_PROVISION
 chmod 0755 "$ROOTFS_DIR/tmp/provision-mido.sh"
 
 log "installing system packages and kernel"
-chroot "$ROOTFS_DIR" /tmp/provision-mido.sh
+DESKTOP_ENVIRONMENT="$DESKTOP_ENVIRONMENT" \
+    chroot "$ROOTFS_DIR" /tmp/provision-mido.sh
 
-INITIAL_PASSWORD="$(openssl rand -hex 12)"
+PASSWORD_HEX="$(openssl rand -hex 4)"
+INITIAL_PASSWORD="$(printf '%08d' "$(( 0x$PASSWORD_HEX % 100000000 ))")"
 printf 'root:%s\ndebian:%s\n' "$INITIAL_PASSWORD" "$INITIAL_PASSWORD" |
     chroot "$ROOTFS_DIR" /usr/sbin/chpasswd
+
+if [[ "$DESKTOP_ENVIRONMENT" == phosh ]]; then
+    SQUEEKBOARD_DIR="$ROOTFS_DIR/home/debian/.local/share/squeekboard/keyboards/terminal"
+    install -d "$SQUEEKBOARD_DIR"
+    rsync -a "$PROJECT_DIR/squeekboard-layouts/terminal/" "$SQUEEKBOARD_DIR/"
+    chroot "$ROOTFS_DIR" /bin/chown -R debian:debian \
+        /home/debian/.local/share/squeekboard
+fi
 
 if [[ -n "$UCM_SOURCE_DIR" ]]; then
     [[ -d "$UCM_SOURCE_DIR" ]] || fail "ALSA UCM source directory not found"
@@ -308,6 +410,7 @@ chmod 0600 "$OUTPUT_DIR/credentials.txt"
 
 cat > "$OUTPUT_DIR/build-info.txt" <<EOF_INFO
 debian_suite=$DEBIAN_SUITE
+desktop_environment=$DESKTOP_ENVIRONMENT
 kernel_version=$KERNEL_VERSION
 rootfs_uuid=$ROOTFS_UUID
 bootfs_uuid=$BOOTFS_UUID

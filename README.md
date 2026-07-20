@@ -66,9 +66,11 @@ cd ..
 
 仓库包含 `Build kernel and system image` 工作流。在 `main` 分支的内核配置、固件或构建脚本发生变化时会自动编译内核和系统镜像；相关 Pull Request 只编译内核，也可以在 GitHub Actions 页面手动触发。
 
-手动触发时可以通过 `kernel_ref` 指定需要编译的内核分支、标签或提交，默认使用 `6.16.3/main`；`build_system_image` 用于控制是否继续制作系统镜像。
+手动触发时可以通过 `kernel_ref` 指定需要编译的内核分支、标签或提交，默认使用 `6.16.3/main`；`build_system_image` 用于控制是否继续制作系统镜像；`desktop_environment` 可选择 `phosh`、`xfce` 或 `none`，默认构建适合触屏使用的 Phosh 完整系统。
 
-内核 Artifacts 包含非调试版 deb 软件包、`Image.gz`、mido 设备树、最终内核配置和内核源码提交号。系统 Artifacts 包含可刷写的 `bootfs-simg.img`、`rootfs-simg.img`、SHA256 校验和、构建信息和随机生成的初始密码文件 `credentials.txt`。首次启动后应立即修改 `root` 和 `debian` 用户密码。系统镜像不包含 lk2nd，刷写前仍需按照下文准备并刷入支持较大 initramfs 的 lk2nd。
+内核 Artifacts 包含非调试版 deb 软件包、`Image.gz`、mido 设备树、最终内核配置和内核源码提交号。完整系统 Artifacts 包含可刷写的 `bootfs-simg.img`、`rootfs-simg.img`、默认 `lk2nd.img`、强制 Goodix 触摸屏使用的 `lk2nd-goodix.img`、刷机说明、SHA256 校验和、构建信息和随机生成的纯数字初始密码文件 `credentials.txt`。首次启动后应立即修改 `root` 和 `debian` 用户密码。
+
+Actions 构建完成后无需再准备其他镜像文件。刷机端只需要已解锁 Bootloader 的 mido、安装了 `fastboot` 的电脑和完整系统 Artifact；根据触摸屏型号选择一个 lk2nd 镜像，并按照 Artifact 中的 `FLASHING.txt` 操作。
 
 ### 准备固件
 
@@ -89,7 +91,7 @@ mv firmware/a506* firmware/qcom/msm8953/xiaomi/mido/
 
 ## 修改并编译 lk2nd
 
-默认 lk2nd 在 extlinux 启动方式下仅支持小于 16 MB 的 initramfs 镜像，而安装桌面时引入的 plymouth 会极大的增大 initramfs 的体积，导致启动失败，所以需要修改并重新编译 lk2nd
+较新版本的 lk2nd 会根据 initramfs 实际大小动态安排内存，不再需要修改旧版本中的 16 MB 固定限制。Actions 固定使用提交 `6752fb8abe45e079f13ed203c7198d5a93f965ed`，并将 initramfs 限制在 50 MiB 以内。
 
 同时，使用 Goodix 触摸屏的设备还需要修改 lk2nd 的 dts 否则无法触摸。
 
@@ -110,9 +112,7 @@ cd lk2nd
 
 ### 修改
 
-编辑 lk2nd/boot/extlinux.c 第 481 行的 `#define MAX_RAMDISK_SIZE		(16 * 1024 * 1024)` 修改为 `#define MAX_RAMDISK_SIZE		(50 * 1024 * 1024)`
-
-注意：这个值不可以随便增大，根据 lk2nd 开发者的说法，在 msm8953 平台上，为内核、dtb 和 initramfs 预留的内存总计最大为 90 MB. 而默认情况下，内核最大占 32 MB, dtb 2 MB, 即 initramfs 不能超过 56 MB.
+默认触摸屏配置无需修改。根据 lk2nd 开发者的说明，msm8953 为内核、dtb 和 initramfs 预留的内存总计最大约为 90 MB，因此仍不应无限增大 initramfs。
 
 同时，如果您的设备搭载 Goodix 触摸屏，还需要修改 lk2nd/device/dts/msm8953/msm8953-xiaomi-common.dts，将 `touchscreen-compatible = "edt,edt-ft5406";` 全部修改为 `touchscreen-compatible = "goodix,gt917d";` 以解决无法触摸的问题。
 
