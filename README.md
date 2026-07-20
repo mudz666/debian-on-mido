@@ -64,9 +64,11 @@ cd ..
 
 ### GitHub Actions 编译
 
-仓库包含 `Build kernel` 工作流。在 `main` 分支的内核配置或工作流发生变化、相关 Pull Request 提交时会自动编译，也可以在 GitHub Actions 页面手动触发。
+仓库包含 `Build kernel and system image` 工作流。在 `main` 分支的内核配置、固件或构建脚本发生变化时会自动编译内核和系统镜像；相关 Pull Request 只编译内核，也可以在 GitHub Actions 页面手动触发。
 
-手动触发时可以通过 `kernel_ref` 指定需要编译的内核分支、标签或提交，默认使用 `6.16.3/main`。编译完成后可在该次运行的 Artifacts 中下载非调试版 deb 软件包、`Image.gz`、mido 设备树、最终内核配置和内核源码提交号。调试 deb 包体积较大，不会上传。
+手动触发时可以通过 `kernel_ref` 指定需要编译的内核分支、标签或提交，默认使用 `6.16.3/main`；`build_system_image` 用于控制是否继续制作系统镜像。
+
+内核 Artifacts 包含非调试版 deb 软件包、`Image.gz`、mido 设备树、最终内核配置和内核源码提交号。系统 Artifacts 包含可刷写的 `bootfs-simg.img`、`rootfs-simg.img`、SHA256 校验和、构建信息和随机生成的初始密码文件 `credentials.txt`。首次启动后应立即修改 `root` 和 `debian` 用户密码。系统镜像不包含 lk2nd，刷写前仍需按照下文准备并刷入支持较大 initramfs 的 lk2nd。
 
 ### 准备固件
 

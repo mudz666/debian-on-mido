@@ -1,4 +1,4 @@
-name: Build kernel
+name: Build kernel and system image
 
 on:
   push:
@@ -7,11 +7,15 @@ on:
     paths:
       - config
       - env.sh
+      - firmware/**
+      - scripts/build-system-image.sh
       - .github/workflows/build-kernel.yml
   pull_request:
     paths:
       - config
       - env.sh
+      - firmware/**
+      - scripts/build-system-image.sh
       - .github/workflows/build-kernel.yml
   workflow_dispatch:
     inputs:
@@ -20,6 +24,11 @@ on:
         required: true
         default: 6.16.3/main
         type: string
+      build_system_image:
+        description: Build flashable Debian system images
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -41,6 +50,9 @@ jobs:
     steps:
       - name: Check out project
         uses: actions/checkout@v4
+
+      - name: Validate build scripts
+        run: bash -n env.sh scripts/build-system-image.sh
 
       - name: Install build dependencies
         run: |
@@ -112,3 +124,58 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  image:
+    name: Build Debian system images
+    needs: build
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_system_image) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Download kernel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mido-kernel-${{ github.run_number }}-${{ github.run_attempt }}
+          path: kernel-artifacts
+
+      - name: Install image build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            android-sdk-libsparse-utils \
+            binfmt-support \
+            ca-certificates \
+            debootstrap \
+            e2fsprogs \
+            qemu-user-static \
+            rsync \
+            uuid-runtime
+
+      - name: Fetch ALSA configuration
+        run: |
+          git clone --depth=1 \
+            https://github.com/msm8953-mainline/alsa-ucm-conf.git \
+            alsa-ucm-conf
+
+      - name: Build system images
+        shell: bash
+        run: |
+          sudo env \
+            KERNEL_ARTIFACTS="$GITHUB_WORKSPACE/kernel-artifacts" \
+            OUTPUT_DIR="$GITHUB_WORKSPACE/system-artifacts" \
+            UCM_SOURCE_DIR="$GITHUB_WORKSPACE/alsa-ucm-conf/ucm2" \
+            bash scripts/build-system-image.sh
+          sudo chown -R "$USER:$USER" system-artifacts
+
+      - name: Upload system images
+        uses: actions/upload-artifact@v4
+        with:
+          name: mido-system-${{ github.run_number }}-${{ github.run_attempt }}
+          path: system-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
