@@ -81,6 +81,7 @@ jobs:
             gcc-aarch64-linux-gnu \
             git \
             kmod \
+            libdw-dev \
             libelf-dev \
             libssl-dev \
             pkg-config \
