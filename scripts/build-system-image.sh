@@ -92,8 +92,12 @@ install -m 0755 "$(command -v qemu-aarch64-static)" \
 mount -t proc proc "$ROOTFS_DIR/proc"
 mount --rbind /sys "$ROOTFS_DIR/sys"
 mount --make-rslave "$ROOTFS_DIR/sys"
-mount --rbind /dev "$ROOTFS_DIR/dev"
+mount --bind /dev "$ROOTFS_DIR/dev"
 mount --make-rslave "$ROOTFS_DIR/dev"
+mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
+mountpoint -q "$ROOTFS_DIR/proc"
+mountpoint -q "$ROOTFS_DIR/sys"
+mountpoint -q "$ROOTFS_DIR/dev/pts"
 
 chroot "$ROOTFS_DIR" /debootstrap/debootstrap --second-stage
 cp --dereference --remove-destination /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
@@ -228,6 +232,7 @@ phosh)
         firefox-esr \
         firefox-esr-l10n-zh-cn \
         fonts-noto-cjk \
+        gdm3 \
         gnome-text-editor \
         gnome-tweaks \
         loupe \
