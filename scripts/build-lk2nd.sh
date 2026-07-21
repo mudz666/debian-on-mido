@@ -15,6 +15,10 @@ PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/system-artifacts}"
 LK2ND_REPOSITORY="${LK2ND_REPOSITORY:-https://github.com/msm8916-mainline/lk2nd.git}"
 LK2ND_REF="${LK2ND_REF:-6752fb8abe45e079f13ed203c7198d5a93f965ed}"
+LK2ND_BOOT_MEM_SIZE="${LK2ND_BOOT_MEM_SIZE:-0x04000000}"
+
+[[ "$LK2ND_BOOT_MEM_SIZE" =~ ^0x[0-9a-fA-F]+$|^[0-9]+$ ]] ||
+    fail "invalid LK2ND_BOOT_MEM_SIZE: $LK2ND_BOOT_MEM_SIZE"
 
 for command in arm-none-eabi-gcc dtc git make sed sha256sum; do
     command -v "$command" >/dev/null || fail "missing required command: $command"
@@ -37,6 +41,7 @@ git -C "$SOURCE_DIR" checkout --detach FETCH_HEAD
 build_lk2nd() {
     make -C "$SOURCE_DIR" -j"$(nproc)" \
         TOOLCHAIN_PREFIX=arm-none-eabi- \
+        LK2ND_BOOT_MEM_SIZE="$LK2ND_BOOT_MEM_SIZE" \
         lk2nd-msm8953
     [[ -f "$SOURCE_DIR/build-lk2nd-msm8953/lk2nd.img" ]] ||
         fail "lk2nd build output not found"
@@ -61,6 +66,7 @@ install -m 0644 "$SOURCE_DIR/build-lk2nd-msm8953/lk2nd.img" \
     "$OUTPUT_DIR/lk2nd-goodix.img"
 
 git -C "$SOURCE_DIR" rev-parse HEAD > "$OUTPUT_DIR/lk2nd-source-revision.txt"
+printf '%s\n' "$LK2ND_BOOT_MEM_SIZE" > "$OUTPUT_DIR/lk2nd-boot-mem-size.txt"
 cat > "$OUTPUT_DIR/FLASHING.txt" <<'EOF_FLASHING'
 Required:
 - Unlocked Xiaomi Redmi Note 4X Qualcomm (mido)

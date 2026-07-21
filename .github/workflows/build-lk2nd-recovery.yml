@@ -1,0 +1,45 @@
+name: Build recovery lk2nd
+
+on:
+  push:
+    branches:
+      - codex/lk2nd-64m
+    paths:
+      - scripts/build-lk2nd.sh
+      - .github/workflows/build-lk2nd-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            device-tree-compiler \
+            gcc-arm-none-eabi \
+            libfdt-dev \
+            make
+
+      - name: Build 64 MiB lk2nd images
+        run: |
+          OUTPUT_DIR="$GITHUB_WORKSPACE/recovery-artifacts" \
+            LK2ND_BOOT_MEM_SIZE=0x04000000 \
+            bash scripts/build-lk2nd.sh
+
+      - name: Publish images to the branch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --force recovery-artifacts
+          git commit -m "Build 64 MiB lk2nd recovery images"
+          git push

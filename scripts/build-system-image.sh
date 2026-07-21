@@ -38,8 +38,8 @@ esac
 ROOTFS_SIZE="${ROOTFS_SIZE:-$DEFAULT_ROOTFS_SIZE}"
 BOOTFS_SIZE="${BOOTFS_SIZE:-1G}"
 
-for command in chroot debootstrap find img2simg mke2fs mount mountpoint \
-    openssl qemu-aarch64-static rsync sha256sum truncate umount uuidgen; do
+for command in chroot debootstrap find gzip img2simg mke2fs mount mountpoint \
+    openssl qemu-aarch64-static rsync sha256sum truncate umount uuidgen wc; do
     command -v "$command" >/dev/null || fail "missing required command: $command"
 done
 
@@ -383,8 +383,14 @@ EOF_FSTAB
 INITRAMFS="$ROOTFS_DIR/boot/initrd.img-$KERNEL_VERSION"
 [[ -f "$INITRAMFS" ]] || fail "initramfs was not generated"
 INITRAMFS_SIZE="$(stat -c '%s' "$INITRAMFS")"
-if (( INITRAMFS_SIZE > 50 * 1024 * 1024 )); then
-    fail "initramfs exceeds lk2nd's documented 50 MiB limit"
+KERNEL_IMAGE="$ROOTFS_DIR/boot/vmlinuz-$KERNEL_VERSION"
+[[ -f "$KERNEL_IMAGE" ]] || fail "compressed kernel image was not generated"
+KERNEL_UNCOMPRESSED_SIZE="$(gzip -cd "$KERNEL_IMAGE" | wc -c)"
+LK2ND_BOOT_MEM_SIZE="${LK2ND_BOOT_MEM_SIZE:-$((64 * 1024 * 1024))}"
+LK2ND_RAMDISK_SIZE="$(( (INITRAMFS_SIZE + 4095) / 4096 * 4096 ))"
+LK2ND_KERNEL_MAX_SIZE="$((LK2ND_BOOT_MEM_SIZE - LK2ND_RAMDISK_SIZE - 2 * 1024 * 1024 - 512 * 1024))"
+if (( LK2ND_KERNEL_MAX_SIZE <= 0 || KERNEL_UNCOMPRESSED_SIZE > LK2ND_KERNEL_MAX_SIZE )); then
+    fail "kernel and initramfs exceed lk2nd boot memory: kernel=$KERNEL_UNCOMPRESSED_SIZE max=$LK2ND_KERNEL_MAX_SIZE"
 fi
 
 rsync -a "$ROOTFS_DIR/boot/" "$BOOTFS_DIR/"
@@ -420,6 +426,9 @@ kernel_version=$KERNEL_VERSION
 rootfs_uuid=$ROOTFS_UUID
 bootfs_uuid=$BOOTFS_UUID
 initramfs_size=$INITRAMFS_SIZE
+kernel_uncompressed_size=$KERNEL_UNCOMPRESSED_SIZE
+lk2nd_boot_mem_size=$LK2ND_BOOT_MEM_SIZE
+lk2nd_kernel_max_size=$LK2ND_KERNEL_MAX_SIZE
 EOF_INFO
 
 (
