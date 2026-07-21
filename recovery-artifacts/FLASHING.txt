@@ -1,0 +1,22 @@
+Required:
+- Unlocked Xiaomi Redmi Note 4X Qualcomm (mido)
+- A computer with fastboot installed
+- A complete backup; flashing userdata erases existing data
+
+Choose one lk2nd image:
+- lk2nd.img: default touchscreen detection
+- lk2nd-goodix.img: force Goodix GT917D for devices where default lk2nd has no touch
+
+Flash from the original bootloader fastboot mode:
+  fastboot erase boot
+  fastboot erase system
+  fastboot erase userdata
+  fastboot flash boot lk2nd.img
+  fastboot reboot
+
+After the phone enters lk2nd fastboot mode:
+  fastboot flash system bootfs-simg.img
+  fastboot flash userdata rootfs-simg.img
+  fastboot reboot
+
+Use lk2nd-goodix.img instead of lk2nd.img only for the forced Goodix variant.
