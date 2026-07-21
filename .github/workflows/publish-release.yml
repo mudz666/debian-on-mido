@@ -1,0 +1,104 @@
+name: Publish successful system image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-release.yml
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful workflow run containing the system artifact
+        required: true
+        default: "29752772338"
+        type: string
+      artifact_name:
+        description: System artifact to publish
+        required: true
+        default: mido-system-phosh-5-1
+        type: string
+      tag_name:
+        description: Release tag
+        required: true
+        default: 20260721-phosh
+        type: string
+      target_commitish:
+        description: Commit used to build the image
+        required: true
+        default: c3ad270d1b9d8bea581bd87f7788fa24a8895724
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-mido-release
+  cancel-in-progress: false
+
+env:
+  RUN_ID: ${{ inputs.run_id || '29752772338' }}
+  ARTIFACT_NAME: ${{ inputs.artifact_name || 'mido-system-phosh-5-1' }}
+  TAG_NAME: ${{ inputs.tag_name || '20260721-phosh' }}
+  TARGET_COMMITISH: ${{ inputs.target_commitish || 'c3ad270d1b9d8bea581bd87f7788fa24a8895724' }}
+  RELEASE_ARCHIVE: debian-on-mido-phosh-20260721.7z
+
+jobs:
+  publish:
+    name: Publish complete flash package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Download successful system artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: system-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.RUN_ID }}
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends p7zip-full
+
+          mkdir -p release-assets
+          7z a -t7z -mx=5 -mmt=on \
+            "release-assets/$RELEASE_ARCHIVE" \
+            ./system-artifact/*
+
+          archive_size="$(stat -c '%s' "release-assets/$RELEASE_ARCHIVE")"
+          if (( archive_size >= 2147483648 )); then
+            echo "Release archive exceeds GitHub's 2 GiB asset limit." >&2
+            exit 1
+          fi
+
+          cd release-assets
+          sha256sum "$RELEASE_ARCHIVE" > "$RELEASE_ARCHIVE.sha256"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          target_commitish: ${{ env.TARGET_COMMITISH }}
+          name: Debian Phosh for mido 20260721
+          body: |
+            Complete Debian Phosh flash package for Xiaomi Redmi Note 4X Qualcomm (mido).
+
+            Built by GitHub Actions run ${{ env.RUN_ID }} from commit `${{ env.TARGET_COMMITISH }}`.
+
+            The archive contains the rootfs, bootfs, default and Goodix lk2nd images,
+            credentials, checksums, build metadata, and flashing instructions.
+
+            Warning: flashing userdata erases existing phone data. Use only on an
+            unlocked mido device and change the generated password after first boot.
+          files: |
+            release-assets/${{ env.RELEASE_ARCHIVE }}
+            release-assets/${{ env.RELEASE_ARCHIVE }}.sha256
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
